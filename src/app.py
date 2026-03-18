@@ -8,11 +8,34 @@ for extracurricular activities at Mergington High School.
 from fastapi import FastAPI, HTTPException
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import RedirectResponse
+from pydantic import BaseModel
+from typing import List, Optional
 import os
 from pathlib import Path
 
 app = FastAPI(title="Mergington High School API",
               description="API for viewing and signing up for extracurricular activities")
+
+
+class ActivityCreate(BaseModel):
+    name: str
+    description: str
+    schedule: str
+    max_participants: int
+
+
+class ActivityUpdate(BaseModel):
+    description: Optional[str] = None
+    schedule: Optional[str] = None
+    max_participants: Optional[int] = None
+
+
+class ActivityOut(BaseModel):
+    name: str
+    description: str
+    schedule: str
+    max_participants: int
+    participants: List[str]
 
 # Mount the static files directory
 current_dir = Path(__file__).parent
@@ -86,6 +109,64 @@ def root():
 @app.get("/activities")
 def get_activities():
     return activities
+
+
+@app.get("/activities/{activity_name}")
+def get_activity(activity_name: str):
+    if activity_name not in activities:
+        raise HTTPException(status_code=404, detail="Activity not found")
+    return {"name": activity_name, **activities[activity_name]}
+
+
+@app.post("/activities")
+def create_activity(activity: ActivityCreate):
+    activity_name = activity.name.strip()
+    if not activity_name:
+        raise HTTPException(status_code=400, detail="Activity name is required")
+    if activity_name in activities:
+        raise HTTPException(status_code=400, detail="Activity already exists")
+
+    if activity.max_participants <= 0:
+        raise HTTPException(status_code=400, detail="max_participants must be > 0")
+
+    activities[activity_name] = {
+        "description": activity.description,
+        "schedule": activity.schedule,
+        "max_participants": activity.max_participants,
+        "participants": []
+    }
+
+    return {"name": activity_name, **activities[activity_name]}
+
+
+@app.put("/activities/{activity_name}")
+def update_activity(activity_name: str, activity: ActivityUpdate):
+    if activity_name not in activities:
+        raise HTTPException(status_code=404, detail="Activity not found")
+
+    existing = activities[activity_name]
+
+    if activity.description is not None:
+        existing["description"] = activity.description
+    if activity.schedule is not None:
+        existing["schedule"] = activity.schedule
+    if activity.max_participants is not None:
+        if activity.max_participants <= 0:
+            raise HTTPException(status_code=400, detail="max_participants must be > 0")
+        if activity.max_participants < len(existing["participants"]):
+            raise HTTPException(status_code=400, detail="max_participants cannot be less than current participant count")
+        existing["max_participants"] = activity.max_participants
+
+    activities[activity_name] = existing
+    return {"name": activity_name, **existing}
+
+
+@app.delete("/activities/{activity_name}")
+def delete_activity(activity_name: str):
+    if activity_name not in activities:
+        raise HTTPException(status_code=404, detail="Activity not found")
+    del activities[activity_name]
+    return {"message": f"Activity '{activity_name}' deleted"}
 
 
 @app.post("/activities/{activity_name}/signup")
